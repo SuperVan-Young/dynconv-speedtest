@@ -12,11 +12,13 @@ weight = conv_sampler.gen_weight()
 bias = conv_sampler.gen_bias()
 ifmap = conv_sampler.gen_input()
 mask = conv_sampler.gen_mask()
-print(mask)
 
 ofmap = None
 with torch.no_grad():
     dynconv_torch = dynconv.pytorch.DynconvTorch()
-    with utils.Timer(dynconv_torch) as t:
-        ofmap = dynconv_torch(weight, ifmap, mask, bias)
-    print(dynconv_torch.elapsed_time)
+    for n in range(10):
+        repetitions = 100
+        with utils.Timer(dynconv_torch) as t:
+            for i in range(repetitions):
+                ofmap = dynconv_torch(weight, ifmap, mask, bias)
+        print("dynconv torch: %fs" % (dynconv_torch.elapsed_time / repetitions))
