@@ -1,53 +1,51 @@
-from distutils.log import warn
-import time
 import torch
+import torch.nn.functional as F
 
-import os 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu' )
-if device == "cpu":
-    warn("Torch is using CPU, the measurement may be incorrect.")
+def apply_mask(x, mask):
+    mask_hard = mask.hard
+    assert mask_hard.shape[0] == x.shape[0]
+    assert mask_hard.shape[2:4] == x.shape[2:4], (mask_hard.shape, x.shape)
+    return mask_hard.float().expand_as(x) * x
 
+def ponder_cost_map(masks):
+    """ takes in the mask list and returns a 2D image of ponder cost """
+    if masks is None or len(masks) == 0:
+        return None
+    assert isinstance(masks, list)
+    out = None
+    for mask in masks:
+        m = mask['std'].hard
+        assert m.dim() == 4
+        m = m[0]  # only show the first image of the batch
+        if out is None:
+            out = m
+        else:
+            out += F.interpolate(m.unsqueeze(0),
+                                 size=(out.shape[1], out.shape[2]), mode='nearest').squeeze(0)
+    return out.squeeze(0).cpu().numpy()
 
-class Timer():
+def cost_per_layer(meta):
+    cost, total = torch.tensor(.0).cuda(), torch.tensor(.0).cuda()
+    percs = []
+    cost = []
+    total = []
 
-    def __init__(self, run) -> None:
-        self.start = None
-        self.end = None
-        self.run = run
-        self.run.elapsed_time = None
+    for i, mask in enumerate(meta['masks']):
+        m_dil = mask['dilate']
+        m = mask['std']
 
-    def __enter__(self):
-        self.start = time.perf_counter()
-        return self
+        assert  m_dil.hard.dim() == 4
+        assert  m_dil.hard.shape[1] == 1
+        assert  m.hard.dim() == 4
+        assert  m.hard.shape[1] == 1
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.end = time.perf_counter()
-        self.run.elapsed_time = self.end - self.start
-
-
-class ConvSampler():
-
-    def __init__(self, batch_size=16, channel_in=3, channel_out=96,
-                 kh=3, kw=3, ih=224, iw=224, sparsity=0.5) -> None:
-        self.batch_size = batch_size
-        self.channel_in = channel_in
-        self.channel_out = channel_out
-        self.kh = kh
-        self.kw = kw
-        self.ih = ih
-        self.iw = iw
-        self.sparsity = sparsity
-
-    def gen_weight(self):
-        return torch.randn(size=(self.channel_out, self.channel_in, self.kh, self.kw)).to(device)
+        c = m_dil.hard.sum(3).sum(2).sum(1) * m_dil.flops_per_position \
+            + m.hard.sum(3).sum(2).sum(1) * m.flops_per_position
+        c = c.cpu()
+        t = torch.tensor(m_dil.hard[0,0].numel()).repeat(m_dil.hard.shape[0]) * m_dil.flops_per_position \
+            + torch.tensor(m.hard[0,0].numel()).repeat(m.hard.shape[0]) * m.flops_per_position
+        cost.append(c)
+        total.append(t)
+        percs.append(c/t)
     
-    def gen_input(self):
-        return torch.randn(size=(self.batch_size, self.channel_in, self.ih, self.iw)).to(device)
-
-    def gen_mask(self):
-        mask = torch.randint(0, 100, size=(self.batch_size, self.channel_in, self.ih, self.iw)) / 100.0
-        return (mask < self.sparsity).type(torch.uint8).to(device)
-    
-    def gen_bias(self):
-        return torch.randn(self.channel_out).to(device)
+    return torch.stack(percs).transpose(0,1), torch.stack(cost).transpose(0,1), torch.stack(total).transpose(0,1)
