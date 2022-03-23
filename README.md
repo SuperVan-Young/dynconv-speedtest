@@ -1,2 +1,13 @@
 # CUDA SPEEDTEST
-Light-weighted scripts to test various cuda kernels. 
+Some scripts to test cuda kernels' performance.
+
+# Quick start
+- run gemm-int8:
+  ```
+  bash run.sh
+  ```
+
+- run dynconv: 
+  ```
+  python dynconv.py
+  ```
