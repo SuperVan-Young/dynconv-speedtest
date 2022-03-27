@@ -58,8 +58,8 @@ class InvertedResidual(nn.Module):
             assert self.identity and self.expand_ratio != 1
             m, meta = self.masker(x, meta)
             # use prepared mask for more precise timing
-            if hasattr(self, "debug_m") and self.debug is True:
-                m = self.debug_m
+            if hasattr(self, "m_debug") and self.debug is True:
+                m = self.m_debug
             mask, mask_dilate = m['std'], m['dilate']
 
             fast_inference = not self.training
